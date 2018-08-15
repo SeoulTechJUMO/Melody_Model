@@ -49,6 +49,27 @@ def show_files():
                         print(msg.note_string)
                     print()
 
+def div_100():
+    count = 0
+    for file in glob.glob("data/*.bin"):
+        with open(file,'rb') as song:
+            song_list = pickle.load(song)
+            if len(song_list)>99:
+                div_list = song_list[:100]
+                count += 100
+                with open('data/notes_{}_files.bin'.format(count), 'ab') as file:
+                    pickle.dump(div_list, file)
+                count += 100
+                div_list = song_list[100:]
+                with open('data/notes_{}_files.bin'.format(count), 'ab') as file:
+                    pickle.dump(div_list, file)
+            else:
+                count += len(song_list)
+                with open('data/notes_{}_files.bin'.format(count), 'ab') as file:
+                    pickle.dump(div_list, file)
+
+                
 #main
-#preparse()
+#div_100()
+preparse()
 #show_files()

@@ -14,6 +14,20 @@ import pickle
 import matplotlib.pyplot as plt
 import shutil
 
+#공용 변수들
+beat2idx = {'128':0, '96':1, '64':2, '48':3, '32':4, '24':5, '16':6, 
+            '12':7, '8':8, '6':9, '4':10, '3':11, '2':12, '1.5':13, 
+            '1':14, '0.75':15, '0.5':16}
+idx2beat = {i:v for (v, i) in beat2idx.items()}
+note_dict = { 'c':0, 'c#':1, 'd':2, 'd#':3, 'e':4, 'f':5, 'f#':6,
+            'g':7, 'g#':8, 'a':9, 'a#':10, 'b':11}
+
+max_pitch_val = 128.0
+max_beat_val = 16.0
+
+ticks = 96
+bpm = 120
+
 class LossHistory(keras.callbacks.Callback):
     def init(self):
         self.losses = []
@@ -76,11 +90,11 @@ def make_model(kinds,weight_num,drop_rate,one_hot_vec_size):
 
 #학습하기
 def exec_learn(track_list,mode):
-    num_epochs = 300
+    num_epochs = 200
     weight_num = 256
     dropout_rate = 0.2
     window_size = 4
-    seq_length = 200
+    seq_length = 100
 
     history = []
     model = []
@@ -129,72 +143,66 @@ def exec_learn(track_list,mode):
     #beat모델
     model.append(make_model('beat',weight_num,dropout_rate,one_hot_vec_size_beat))
 
-    for i in range(len(model)):
-        history.append(LossHistory())
-        history[i].init()
-
     #모델 학습
     for epoch_idx in range(num_epochs):
         print ('epochs : ' + str(epoch_idx))
         for i,each_model in enumerate(model):
-            each_model.fit(x_train, y_label[i], epochs=1, batch_size=1, verbose=2, shuffle=False, callbacks=[history[i]])
+            each_model.fit(x_train, y_label[i], epochs=1, batch_size=1, verbose=2, shuffle=False)
             each_model.reset_states()
 
     #한곡의 학습이 끝나면 저장
     model[0].save("model_save/"+kinds+"_model.h5")
     model[1].save("model_save/beat_model.h5")
-    
-    for i, his in history:
-        plt.plot(his.losses)
-        plt.ylabel('loss')
-        plt.xlabel('epoch')
-        plt.legend(['train'], loc='upper left')
-        plt.show()
-
-    #모델 평가하기
-    scores_note = model[0].evaluate(x_train, y_label[0], batch_size=1)
-    scores_beat = model[1].evaluate(x_train, y_label[1], batch_size=1)
-    print("%s: %.2f%%" %(model[0].metrics_names[1], scores[1]*100))
-    print("%s: %.2f%%" %(model[1].metrics_names[1], scores[1]*100))
-
-    model[0].reset_states()
-    model[1].reset_states()
 
 
 #모델 사용하기
-def using_model():
-    pred_count = len(seq)-1 # 최대 예측 개수 정의
+def using_model(pitch_model_dir,beat_model_dir,seq):
+    pitch_model = load_model(pitch_model_dir)
+    beat_model = load_model(beat_model_dir)
 
-    seq_out = seq[:4]
-    pred_out = model.predict(x_train, batch_size=1)
+    seq_out = seq
+    seq_in = []
+    predict = []
+    seq_pred = []
 
-    for i in range(pred_count):
-        idx = np.argmax(pred_out[i]) # one-hot 인코딩을 인덱스 값으로 변환
-        #print(pred_out[i])
-        print(idx)
-        #seq_out.append(idx2code[idx]) # seq_out는 최종 악보이므로 인덱스 값을 코드로 변환하여 저장
+    for note in seq:    
+        seq_in.append(makeset(note))
+
+    for i in range(100):
+        sample_in = np.array(seq_in)
+        sample_in = np.reshape(seq_in, (1, 4, 2))
+
+        pred_out = pitch_model.predict(sample_in)
+        idx = np.argmax(pred_out)
+        predict.append(idx)
+
+        pred_out = beat_model.predict(sample_in)
+        idx = np.argmax(pred_out)
+        predict.append(idx2beat[idx])
+
+        seq_out.append(predict)
+        seq_pred.append(predict[0]/float(max_pitch_val))
+        seq_pred.append(beat2idx[predict[1]]/float(max_beat_val))
+        seq_in.append(seq_pred)
+        seq_in.pop(0)
+
+        predict = []
+        seq_pred = []
+ 
+    print(seq_out)
+
+#학습 main
+if __name__ == "__main__":
+    count = 0
+    for file in glob.glob("data/*.bin"):
+        with open(file,'rb') as song:
+            song_list = pickle.load(song)
     
-    print("one step prediction : ", seq_out)
+        for song in song_list:        
+            count += 1
+            print("number of files : {} file".format(count))
+            exec_learn(song[0],song[1])
 
-
-beat2idx = {'128':0, '96':1, '64':2, '48':3, '32':4, '24':5, '16':6, 
-            '12':7, '8':8, '6':9, '4':10, '3':11, '2':12, '1.5':13, 
-            '1':14, '0.75':15, '0.5':16}
-note_dict = { 'c':0, 'c#':1, 'd':2, 'd#':3, 'e':4, 'f':5, 'f#':6,
-            'g':7, 'g#':8, 'a':9, 'a#':10, 'b':11}
-
-max_pitch_val = 128.0
-max_beat_val = 16.0
-
-ticks = 96
-bpm = 120
-
-for file in glob.glob("data/*.bin"):
-    with open(file,'rb') as song:
-        song_list = pickle.load(song)
     
-    for song in song_list:
-        exec_learn(song[0],song[1])
-    
-    #학습완료한 데이터는 이동
-    shutil.move(file,"data/complete")
+        #학습완료한 데이터는 이동
+        shutil.move(file,"data/complete")
