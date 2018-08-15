@@ -63,7 +63,7 @@ def cal_tick_to_beat(time, ticks):
 
 #return beat to tick, ex) 4 -> 480, 2 -> 960 etc.
 def cal_beat_to_tick(beat, ticks):
-    cal = int((ticks*4)/int(beat))
+    cal = int((ticks*4)/float(beat))
     return cal
 
 #return note name to string, ex) c5 e3 f#4
