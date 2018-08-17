@@ -5,6 +5,7 @@ from keras.layers import Dense, LSTM
 from keras.utils import np_utils
 from keras.layers.core import Dropout
 from keras.models import load_model
+from keras.optimizers import adam
 import midiparser
 import note_tools
 import time
@@ -13,6 +14,13 @@ import os
 import pickle
 import matplotlib.pyplot as plt
 import shutil
+import sys
+
+np.random.seed(5)
+delta_range = []
+i = -60
+for k in range(120):
+    delta_range.append(i+k)
 
 #공용 변수들
 beat2idx = {'128':0, '96':1, '64':2, '48':3, '32':4, '24':5, '16':6, 
@@ -21,12 +29,11 @@ beat2idx = {'128':0, '96':1, '64':2, '48':3, '32':4, '24':5, '16':6,
 idx2beat = {i:v for (v, i) in beat2idx.items()}
 note_dict = { 'c':0, 'c#':1, 'd':2, 'd#':3, 'e':4, 'f':5, 'f#':6,
             'g':7, 'g#':8, 'a':9, 'a#':10, 'b':11}
+pit2idx = {i:v for (v,i) in enumerate(delta_range)}
+idx2pit = {i:v for (v,i) in pit2idx.items()}
 
 max_pitch_val = 128.0
 max_beat_val = 16.0
-
-ticks = 96
-bpm = 120
 
 class LossHistory(keras.callbacks.Callback):
     def init(self):
@@ -73,28 +80,38 @@ def makeset(code):
     features.append(beat2idx[code[0].length]/float(max_beat_val))
     return features
 
-def make_model(kinds,weight_num,drop_rate,one_hot_vec_size):
+def make_model(kinds,weight_num,drop_rate,one_hot_vec_size,window_size,feature):
     #이전 가중치 정보가 있다면 로드
     if glob.glob("model_save/"+kinds+".h5"):
         for file in glob.glob("model_save/"+kinds+"_model.h5"):
             model.load_model(file)
     else:
         model = Sequential()
-        model.add(LSTM(weight_num, return_sequences=True, batch_input_shape = (1, 4, 2), stateful=True, kernel_initializer='he_normal'))
-        model.add(LSTM(weight_num, return_sequences=False, kernel_initializer='he_normal'))
+        #model.add(LSTM(weight_num, return_sequences=True, batch_input_shape = (1, 4, 2), stateful=True))
+        model.add(LSTM(weight_num, return_sequences=True, batch_input_shape = (1, window_size, feature)))
         model.add(Dropout(drop_rate))
-
+        model.add(LSTM(weight_num, return_sequences=False))
+        model.add(Dropout(drop_rate))
+        
         model.add(Dense(one_hot_vec_size, activation='softmax'))
         model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     return model
 
+def remake_mode(seq,tonic):
+    for pat in seq:
+        for k in pat:
+            if k.note - tonic > 0:
+                k.note -= tonic
+    return seq
+
 #학습하기
 def exec_learn(track_list,mode):
     num_epochs = 200
-    weight_num = 256
-    dropout_rate = 0.2
+    weight_num = 512
+    dropout_rate = 0.3
     window_size = 4
-    seq_length = 100
+    seq_length = 50
+    feature = 2
 
     history = []
     model = []
@@ -110,11 +127,14 @@ def exec_learn(track_list,mode):
     #시퀀스 데이터를 일정 크기로 자른다
     seq = track_list[:seq_length]
 
+    #조성 조정
+    seq = remake_mode(seq,note_dict[tonic])
+
     #데이터셋 생성
     x_train, y_train = seq2dataset(seq, window_size, note_dict[tonic])
 
     #입력을 (샘플 수, 타임스텝, 특성 수)로 형태 변환
-    x_train = np.reshape(x_train, (len(seq)-window_size, 4, 2))
+    x_train = np.reshape(x_train, (len(seq)-window_size, window_size, feature))
 
     #라벨 음표와 박자를 구별
     for idx,i in enumerate(y_train):
@@ -136,19 +156,19 @@ def exec_learn(track_list,mode):
 
     #major, minor 모델
     if kinds == 'major':
-        model.append(make_model('major',weight_num,dropout_rate,one_hot_vec_size_note))
+        model.append(make_model('major',weight_num,dropout_rate,one_hot_vec_size_note,window_size,feature))
     elif kinds == 'minor':
-        model.append(make_model('minor',weight_num,dropout_rate,one_hot_vec_size_note))
+        model.append(make_model('minor',weight_num,dropout_rate,one_hot_vec_size_note,window_size,feature))
 
     #beat모델
-    model.append(make_model('beat',weight_num,dropout_rate,one_hot_vec_size_beat))
+    model.append(make_model('beat',weight_num,dropout_rate,one_hot_vec_size_beat,window_size,feature))
 
     #모델 학습
     for epoch_idx in range(num_epochs):
         print ('epochs : ' + str(epoch_idx))
         for i,each_model in enumerate(model):
             each_model.fit(x_train, y_label[i], epochs=1, batch_size=1, verbose=2, shuffle=False)
-            each_model.reset_states()
+            #each_model.reset_states()
 
     #한곡의 학습이 끝나면 저장
     model[0].save("model_save/"+kinds+"_model.h5")
@@ -156,21 +176,27 @@ def exec_learn(track_list,mode):
 
 
 #모델 사용하기
-def using_model(pitch_model_dir,beat_model_dir,seq):
+def using_model(pitch_model_dir,beat_model_dir,seq,window_size):
+    feature = 2
+
     pitch_model = load_model(pitch_model_dir)
     beat_model = load_model(beat_model_dir)
 
-    seq_out = seq
+    seq_out = []
     seq_in = []
     predict = []
     seq_pred = []
+    pattern = []
+    for i in seq:
+        for j in i:
+            pattern.append(j)
 
     for note in seq:    
         seq_in.append(makeset(note))
 
     for i in range(100):
         sample_in = np.array(seq_in)
-        sample_in = np.reshape(seq_in, (1, 4, 2))
+        sample_in = np.reshape(seq_in, (1, window_size, feature))
 
         pred_out = pitch_model.predict(sample_in)
         idx = np.argmax(pred_out)
@@ -189,12 +215,15 @@ def using_model(pitch_model_dir,beat_model_dir,seq):
         predict = []
         seq_pred = []
  
-    print(seq_out)
+    for pat in seq_out:
+        pattern.append(note_tools.pred_note(pat[0],float(pat[1])))
+    return pattern
 
 #학습 main
 if __name__ == "__main__":
     count = 0
     for file in glob.glob("data/*.bin"):
+        print(file)
         with open(file,'rb') as song:
             song_list = pickle.load(song)
     
@@ -202,6 +231,8 @@ if __name__ == "__main__":
             count += 1
             print("number of files : {} file".format(count))
             exec_learn(song[0],song[1])
+            #if count == 1:
+            #    sys.exit(1)
 
     
         #학습완료한 데이터는 이동
