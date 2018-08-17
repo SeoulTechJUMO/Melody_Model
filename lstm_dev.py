@@ -6,6 +6,7 @@ from keras.utils import np_utils
 from keras.layers.core import Dropout
 from keras.models import load_model
 from keras.optimizers import adam
+import midiparser
 import note_tools
 import time
 import glob
@@ -15,7 +16,7 @@ import matplotlib.pyplot as plt
 import shutil
 import sys
 
-#음정변화량(-59~59,-60은 쉼표로 간주)
+np.random.seed(5)
 delta_range = []
 i = -60
 for k in range(120):
@@ -31,8 +32,15 @@ note_dict = { 'c':0, 'c#':1, 'd':2, 'd#':3, 'e':4, 'f':5, 'f#':6,
 pit2idx = {i:v for (v,i) in enumerate(delta_range)}
 idx2pit = {i:v for (v,i) in pit2idx.items()}
 
-max_pitch_val = float(len(pit2idx))
-max_beat_val = float(len(beat2idx))
+max_pitch_val = 128.0
+max_beat_val = 16.0
+
+class LossHistory(keras.callbacks.Callback):
+    def init(self):
+        self.losses = []
+        
+    def on_epoch_end(self, batch, logs={}):
+        self.losses.append(logs.get('loss'))
 
 # 데이터셋 생성 함수
 def seq2dataset(seq, window_size, tonic):
@@ -68,8 +76,8 @@ def makelabel(code,flag):
 def makeset(code):
     features = []
 
-    features.append(code[0].note/max_pitch_val)
-    features.append(beat2idx[code[0].length]/max_beat_val)
+    features.append(code[0].note/float(max_pitch_val))
+    features.append(beat2idx[code[0].length]/float(max_beat_val))
     return features
 
 def make_model(kinds,weight_num,drop_rate,one_hot_vec_size,window_size,feature):
@@ -199,8 +207,8 @@ def using_model(pitch_model_dir,beat_model_dir,seq,window_size):
         predict.append(idx2beat[idx])
 
         seq_out.append(predict)
-        seq_pred.append(predict[0]/max_pitch_val)
-        seq_pred.append(beat2idx[predict[1]]/max_beat_val)
+        seq_pred.append(predict[0]/float(max_pitch_val))
+        seq_pred.append(beat2idx[predict[1]]/float(max_beat_val))
         seq_in.append(seq_pred)
         seq_in.pop(0)
 
@@ -226,5 +234,6 @@ if __name__ == "__main__":
             #if count == 1:
             #    sys.exit(1)
 
+    
         #학습완료한 데이터는 이동
         shutil.move(file,"data/complete")
