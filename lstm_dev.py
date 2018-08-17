@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import shutil
 import sys
 
-np.random.seed(5)
+#음정 변화량 (-59~59, -60은 쉼표)
 delta_range = []
 i = -60
 for k in range(120):
@@ -32,13 +32,6 @@ idx2pit = {i:v for (v,i) in pit2idx.items()}
 
 max_pitch_val = 128.0
 max_beat_val = 16.0
-
-class LossHistory(keras.callbacks.Callback):
-    def init(self):
-        self.losses = []
-        
-    def on_epoch_end(self, batch, logs={}):
-        self.losses.append(logs.get('loss'))
 
 # 데이터셋 생성 함수
 def seq2dataset(seq, window_size, tonic):
@@ -232,6 +225,5 @@ if __name__ == "__main__":
             #if count == 1:
             #    sys.exit(1)
 
-    
         #학습완료한 데이터는 이동
         shutil.move(file,"data/complete")
