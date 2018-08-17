@@ -5,8 +5,6 @@ from keras.layers import Dense, LSTM
 from keras.utils import np_utils
 from keras.layers.core import Dropout
 from keras.models import load_model
-from keras.optimizers import adam
-import midiparser
 import note_tools
 import time
 import glob
@@ -26,7 +24,6 @@ for k in range(120):
 beat2idx = {'128':0, '96':1, '64':2, '48':3, '32':4, '24':5, '16':6, 
             '12':7, '8':8, '6':9, '4':10, '3':11, '2':12, '1.5':13, 
             '1':14, '0.75':15, '0.5':16}
-
 idx2beat = {i:v for (v, i) in beat2idx.items()}
 note_dict = { 'c':0, 'c#':1, 'd':2, 'd#':3, 'e':4, 'f':5, 'f#':6,
             'g':7, 'g#':8, 'a':9, 'a#':10, 'b':11}
@@ -77,8 +74,8 @@ def makelabel(code,flag):
 def makeset(code):
     features = []
 
-    features.append(code[0].note/float(max_pitch_val))
-    features.append(beat2idx[code[0].length]/float(max_beat_val))
+    features.append(code[0].note/max_pitch_val)
+    features.append(beat2idx[code[0].length]/max_beat_val)
     return features
 
 def make_model(kinds,weight_num,drop_rate,one_hot_vec_size,window_size,feature):
@@ -208,8 +205,8 @@ def using_model(pitch_model_dir,beat_model_dir,seq,window_size):
         predict.append(idx2beat[idx])
 
         seq_out.append(predict)
-        seq_pred.append(predict[0]/float(max_pitch_val))
-        seq_pred.append(beat2idx[predict[1]]/float(max_beat_val))
+        seq_pred.append(predict[0]/max_pitch_val)
+        seq_pred.append(beat2idx[predict[1]]/max_beat_val)
         seq_in.append(seq_pred)
         seq_in.pop(0)
 
