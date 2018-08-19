@@ -134,8 +134,8 @@ def data_split(data):
 #학습하기
 def exec_learn(track_list,mode):
     num_epochs = 100
-    weight_num = 512
-    dropout_rate = 0.2
+    weight_num = 256
+    dropout_rate = 0.0
     window_size = 4
     seq_length = 50
     feature = 1
@@ -163,10 +163,10 @@ def exec_learn(track_list,mode):
     seq = remake_data(seq)
 
     #윈도우 크기로 자르기
-    x_train, y_train = seq2dataset(seq, window_size)
+    x_train_set, y_train = seq2dataset(seq, window_size)
 
     #feature변환
-    x_note, x_beat = data_split(x_train)
+    x_note, x_beat = data_split(x_train_set)
 
     x_note = np.reshape(x_note, (len(seq)-window_size, window_size, feature))
     x_beat = np.reshape(x_beat, (len(seq)-window_size, window_size, feature))
