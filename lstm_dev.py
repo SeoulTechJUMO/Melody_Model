@@ -14,27 +14,38 @@ import matplotlib.pyplot as plt
 import shutil
 import sys
 
-#음정 변화량 (-59~59, -60은 쉼표)
+#음정 변화량 (-127~127, -128은 쉼표)
+pitch_range = []
+i = -128
+for k in range(2*(-i)):
+    pitch_range.append(i+k)
+
+#박자 변화량 (-16~16)
 delta_range = []
-i = -60
-for k in range(120):
+i = -16
+for k in range(2*(-i)+1):
     delta_range.append(i+k)
 
 #공용 변수들
+note_dict = { 'c':0, 'c#':1, 'd':2, 'd#':3, 'e':4, 'f':5, 'f#':6,
+            'g':7, 'g#':8, 'a':9, 'a#':10, 'b':11}
+
 beat2idx = {'128':0, '96':1, '64':2, '48':3, '32':4, '24':5, '16':6, 
             '12':7, '8':8, '6':9, '4':10, '3':11, '2':12, '1.5':13, 
             '1':14, '0.75':15, '0.5':16}
 idx2beat = {i:v for (v, i) in beat2idx.items()}
-note_dict = { 'c':0, 'c#':1, 'd':2, 'd#':3, 'e':4, 'f':5, 'f#':6,
-            'g':7, 'g#':8, 'a':9, 'a#':10, 'b':11}
-pit2idx = {i:v for (v,i) in enumerate(delta_range)}
+
+delta2idx = {i:v for (v,i) in enumerate(delta_range)}
+idx2delta = {i:v for (v,i) in delta2idx.items()}
+
+pit2idx = {i:v for (v,i) in enumerate(pitch_range)}
 idx2pit = {i:v for (v,i) in pit2idx.items()}
 
-max_pitch_val = 128.0
-max_beat_val = 16.0
+max_pitch_val = float(len(pit2idx))
+max_beat_val = float(len(delta2idx))
 
-# 데이터셋 생성 함수
-def seq2dataset(seq, window_size, tonic):
+# 윈도우 크기로 자르는 함수
+def seq2dataset(seq, window_size):
     dataset_X = []
     dataset_Y = []
     
@@ -43,9 +54,7 @@ def seq2dataset(seq, window_size, tonic):
         subset = seq[i:(i+window_size+1)]
             
         for j in range(len(subset)-1):
-            features = makeset(subset[j])            
-            dataset_X.append(features)
-
+            dataset_X.append(makeset(subset[j]))            
         dataset_Y.append(makelabel(subset[window_size],True))
         dataset_Y.append(makelabel(subset[window_size],False))
 
@@ -56,19 +65,19 @@ def makelabel(code,flag):
     features = []
     #노트 라벨
     if flag == True:
-        features.append(code[0].note)
+        features.append(code[0])
         return features
     #박자 라벨
     else:
-        features.append(beat2idx[code[0].length])
+        features.append(code[1])
         return features
 
 #학습 데이터 set, 노트 + 박자
 def makeset(code):
     features = []
 
-    features.append(code[0].note/max_pitch_val)
-    features.append(beat2idx[code[0].length]/max_beat_val)
+    features.append(code[0]/max_pitch_val)
+    features.append(code[1]/max_beat_val)
     return features
 
 def make_model(kinds,weight_num,drop_rate,one_hot_vec_size,window_size,feature):
@@ -91,21 +100,50 @@ def make_model(kinds,weight_num,drop_rate,one_hot_vec_size,window_size,feature):
 def remake_mode(seq,tonic):
     for pat in seq:
         for k in pat:
+            k.length = beat2idx[k.length]
             if k.note - tonic > 0:
                 k.note -= tonic
     return seq
 
+def remake_data(seq):
+    data = []
+    features = []
+    for idx, pat in enumerate(seq):
+        if idx == 0:
+            features.append(pat[0].note)
+            features.append(pat[0].length)
+        else:
+            features.append(pit2idx[seq[idx][0].note - seq[idx-1][0].note])
+            features.append(delta2idx[seq[idx][0].length - seq[idx-1][0].length])
+        data.append(features)
+        features = []
+
+    return data
+
+#음정,박자 나누기
+def data_split(data):
+    note = []
+    beat = []
+    for idx,i in enumerate(data):
+        if idx%2 == 0:
+            note.append(i)
+        else:
+            beat.append(i)
+    return note, beat
+
 #학습하기
 def exec_learn(track_list,mode):
-    num_epochs = 200
+    num_epochs = 100
     weight_num = 512
-    dropout_rate = 0.3
+    dropout_rate = 0.2
     window_size = 4
     seq_length = 50
-    feature = 2
+    feature = 1
 
-    history = []
     model = []
+    x_note = []
+    x_beat = []
+    x_train = []
     y_note = []
     y_beat = []
     y_label = []
@@ -118,26 +156,30 @@ def exec_learn(track_list,mode):
     #시퀀스 데이터를 일정 크기로 자른다
     seq = track_list[:seq_length]
 
-    #조성 조정
+    #beat를 idx화, 조성 조정, c를 기준으로
     seq = remake_mode(seq,note_dict[tonic])
 
-    #데이터셋 생성
-    x_train, y_train = seq2dataset(seq, window_size, note_dict[tonic])
+    #데이터를 피치, 박자 변화량으로 변환
+    seq = remake_data(seq)
 
-    #입력을 (샘플 수, 타임스텝, 특성 수)로 형태 변환
-    x_train = np.reshape(x_train, (len(seq)-window_size, window_size, feature))
+    #윈도우 크기로 자르기
+    x_train, y_train = seq2dataset(seq, window_size)
+
+    #feature변환
+    x_note, x_beat = data_split(x_train)
+
+    x_note = np.reshape(x_note, (len(seq)-window_size, window_size, feature))
+    x_beat = np.reshape(x_beat, (len(seq)-window_size, window_size, feature))
+    x_train.append(x_note)
+    x_train.append(x_beat)
 
     #라벨 음표와 박자를 구별
-    for idx,i in enumerate(y_train):
-        if idx%2 == 0:
-            y_note.append(i)
-        else:
-            y_beat.append(i)
+    y_note, y_beat = data_split(y_train)
 
     y_label.append(y_note)
     y_label.append(y_beat)
 
-    #라벨값에 대한 one-hot 인코딩 수행
+    #라벨에 one-hot 인코딩
 
     y_label[0] = np_utils.to_categorical(y_label[0])
     y_label[1] = np_utils.to_categorical(y_label[1])
@@ -152,13 +194,13 @@ def exec_learn(track_list,mode):
         model.append(make_model('minor',weight_num,dropout_rate,one_hot_vec_size_note,window_size,feature))
 
     #beat모델
-    model.append(make_model('beat',weight_num,dropout_rate,one_hot_vec_size_beat,window_size,feature))
+    model.append(make_model('beat',int(weight_num/2),dropout_rate,one_hot_vec_size_beat,window_size,feature))
 
     #모델 학습
     for epoch_idx in range(num_epochs):
         print ('epochs : ' + str(epoch_idx))
         for i,each_model in enumerate(model):
-            each_model.fit(x_train, y_label[i], epochs=1, batch_size=1, verbose=2, shuffle=False)
+            each_model.fit(x_train[i], y_label[i], epochs=1, batch_size=1, verbose=2, shuffle=False)
             #each_model.reset_states()
 
     #한곡의 학습이 끝나면 저장
@@ -182,8 +224,7 @@ def using_model(pitch_model_dir,beat_model_dir,seq,window_size):
         for j in i:
             pattern.append(j)
 
-    for note in seq:    
-        seq_in.append(makeset(note))
+    seq_in = remake_data(seq)
 
     for i in range(100):
         sample_in = np.array(seq_in)
@@ -191,23 +232,26 @@ def using_model(pitch_model_dir,beat_model_dir,seq,window_size):
 
         pred_out = pitch_model.predict(sample_in)
         idx = np.argmax(pred_out)
-        predict.append(idx)
+        predict.append(idx2pit[idx])
 
         pred_out = beat_model.predict(sample_in)
         idx = np.argmax(pred_out)
-        predict.append(idx2beat[idx])
+        predict.append(idx2delta[idx])
 
         seq_out.append(predict)
-        seq_pred.append(predict[0]/max_pitch_val)
-        seq_pred.append(beat2idx[predict[1]]/max_beat_val)
+        seq_pred.append(pit2idx[predict[0]]/max_pitch_val)
+        seq_pred.append(delta2idx[predict[1]]/max_beat_val)
         seq_in.append(seq_pred)
         seq_in.pop(0)
 
         predict = []
         seq_pred = []
- 
+
     for pat in seq_out:
-        pattern.append(note_tools.pred_note(pat[0],float(pat[1])))
+        if pat[0] + pattern[-1].note != 0:
+            pattern.append(note_tools.pred_note(pat[0] + pattern[-1].note,float(idx2beat[pat[1] + beat2idx[pattern[-1].length]])))
+        else:
+            pattern.append(note_tools.rest_note(float(idx2beat[pat[1] + beat2idx[pattern[-1].length]])))
     return pattern
 
 #학습 main
