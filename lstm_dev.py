@@ -233,7 +233,7 @@ if __name__ == "__main__":
         count = 0
         init = setting(file,count)
         if os.path.isfile("last_file.conf") and start:
-            with open(file,'rb') as conf:
+            with open("last_file.conf",'rb') as conf:
                 init = pickle.load(conf)
             file = init.file
             count = init.idx 
